@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+
+<head>
+  <meta charset="UTF-8">
+
+  <style>
+    *{
+      margin: 0px;
+    }
+    
+    svg{
+      position: absolute;
+      font-family: "Frutiger Next Regular";
+      font-size: 14.4px;
+    }
+
+    #other{
+      pointer-events: none;
+    }
+
+    text, tspan{
+      pointer-events: all;
+    }
+
+    #tooltip{
+      position: absolute;
+      pointer-events: none;
+      padding: 6.4px;
+      font-family: "Frutiger Next Regular";
+      font-size: 11.2px;
+      background-color: rgba(255, 255, 255, 0.7);
+      width: fit-content;
+      height: fit-content;
+    }
+
+    em{
+      font-style: normal;
+      font-family: "Frutiger Next Medium";
+    }
+
+    @font-face {
+      font-family: "Frutiger Next Regular";
+      src: url("resources/FrutigerNext-Regular.otf");
+    }
+
+    @font-face {
+      font-family: "Frutiger Next Medium";
+      src: url("resources/FrutigerNext-Medium.otf");
+    }
+  </style>
+
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <script src="https://d3js.org/d3-geo-projection.v2.min.js"></script>
+  <script src="https://d3js.org/topojson.v3.min.js"></script>
+</head>
+
+<body style="background-color: #dfdfdf">
+  <svg width="1600" height="800" style="background-color: white">
+    <g id="map" width="1600" height="800"></g>
+
+    <g id="other" width="1600" height="800">
+      <g id="text1" width="216" height="64" transform="translate(36, 40)">
+        <text>
+          <tspan id="un-body" font-family="Frutiger Next Medium">UN General Assembly resolution</tspan>
+          <tspan id="date" x="0" dy="17.6px" font-family="Frutiger Next Regular"></tspan>
+        </text>
+      </g>
+
+      <g id="title" width="520" height="64" transform="translate(268, 40)"></g>
+
+      <g id="legend" width="240" height="176" transform="translate(36, 600)">
+        <rect width="8" height="16" style="fill: #7d7dc9;"></rect>
+        <text x="16" y="8" dominant-baseline="middle"" font-size="11.2px">Yes</text>
+        <text id="count-y" x="96" y="8" dominant-baseline="middle" text-anchor="end" font-size="11.2px"></text>
+
+        <rect y="24" width="8" height="16" style="fill: #f28c72"></rect>
+        <text x="16" y="32" dominant-baseline="middle" font-size="11.2px">No</text>
+        <text id="count-n" x="96" y="32" dominant-baseline="middle" text-anchor="end" font-size="11.2px"></text>
+
+        <rect y="48" width="8" height="16" style="fill: #006961"></rect>
+        <text x="16" y="56" dominant-baseline="middle" font-size="11.2px">Abstention</text>
+        <text id="count-a" x="96" y="56" dominant-baseline="middle" text-anchor="end" font-size="11.2px"></text>
+
+        <rect y="72" width="8" height="16" style="fill: #bcbcbc"></rect>
+        <text x="16" y="80" dominant-baseline="middle" font-size="11.2px">Non-voting</text>
+        <text id="count-x" x="96" y="80" dominant-baseline="middle" text-anchor="end" font-size="11.2px"></text>
+
+        <rect y="96" width="8" height="16" style="fill: #eeeeee"></rect>
+        <text id="no-data" x="16" y="104" dominant-baseline="middle" font-size="11.2px">No data</text>
+
+        <a id="link">
+          <text id="path" y="168" font-size="11.2px"></text>
+        </a>
+      </g>
+    </g>
+  </svg>
+
+  <script>
+    d3.csv("details.csv").then(function(d){
+      d3.select("#title")
+        .append("text")
+        .text(d[0].VALUE)
+        .call(wrap, 640);
+
+      d3.select("#un-body").text("UN " + d[1].VALUE + " resolution")
+      if(d[1].VALUE === "Security Council"){
+        d3.select("#no-data").text("Non-member");
+      }
+
+      d3.select("#link").attr("href", d[2].VALUE)
+      d3.select("#path").text(d[2].VALUE);
+      d3.select("#date").text("voted on " + d[3].VALUE);
+      d3.select("#count-y").text(d[5].VALUE);
+      d3.select("#count-n").text(d[6].VALUE);
+      d3.select("#count-a").text(d[7].VALUE);
+      d3.select("#count-x").text(d[8].VALUE);
+    });
+
+    var data = d3.map([]);
+    var names = d3.map([]);
+
+    d3.csv("results.csv").then(function(d){
+      d.forEach(d => data.set(d.COUNTRY.substring(0, 30), d.VOTE));
+    });
+
+    d3.csv("names.csv").then(function(d){
+      d.forEach(d => names.set(d.COUNTRY.substring(0, 30), d.NAME));
+    });
+
+    var svg = d3.select("#map"),
+      width = +svg.attr("width"),
+      height = +svg.attr("height");
+
+    var projection = d3.geoRobinson()
+      .scale(256.96)
+      .center([2.4, 18.5])
+      .translate([width / 2, height / 2]);
+
+    var color = d3.scaleOrdinal()
+      .domain(["Y", "N", "A", "X"])
+      .range(["#7d7dc9", "#f28c72", "#006961", "#bcbcbc"])
+      .unknown("#eeeeee")
+
+    var tooltip = d3.select("body")
+      .append("div") 
+      .attr("id", "tooltip")
+      .style("opacity", "0");
+
+    Promise.resolve(d3.json("resources/quantized.json"))
+      .then(function(d){
+        svg.append("g")
+          .selectAll("path")
+          .data(topojson.feature(d, d.objects["UN_countries"]).features)
+          .enter()
+          .append("path")
+          .attr("d", d3.geoPath(projection))
+          .attr("fill", d => color(data.get(d.properties.NAME)))
+          .attr("stroke", "black")
+          .attr("stroke-width", "0.144px")
+          .on("mouseover", function(d){
+            d3.select(this).attr("opacity", "0.8");
+            tooltip.transition()
+              .duration(100)
+              .style("opacity", "1");
+            
+            var key = d3.map({"Y": "Yes", "N": "No", "A": "Abstention",
+              "X": "Non-voting", undefined: "No data"}); // Non-member
+            tooltip.html("<em>" + names.get(d.properties.NAME) +
+              "</em> <br>" + key.get(data.get(d.properties.NAME)))
+              .style("left", d3.event.pageX + "px")
+              .style("top", d3.event.pageY + "px");
+          })
+          .on("mousemove", function(d){
+            tooltip
+              .style("left", d3.event.pageX + "px")
+              .style("top", d3.event.pageY + "px");
+          })
+          .on("mouseout", function(d){
+            d3.select(this).attr("opacity", "1");
+            tooltip.transition()
+              .duration(200)
+              .style("opacity", "0"); 
+          });
+      });
+
+    // From Mike Bostock https://bl.ocks.org/mbostock/7555321
+    function wrap(text, width){
+      text.each(function(){
+        var text = d3.select(this),
+          words = text.text().split(/\s+/).reverse(),
+          word,
+          line = [],
+          y = text.attr("y"),
+          tspan = text.text(null).append("tspan").attr("x", 0).attr("y", y).attr("dy", "0px");
+        while(word = words.pop()){
+          line.push(word);
+          tspan.text(line.join(" "));
+          if(tspan.node().getComputedTextLength() > width){
+            line.pop();
+            tspan.text(line.join(" "));
+            line = [word];
+            tspan = text.append("tspan").attr("x", 0).attr("y", y).attr("dy", "17.6px").text(word);
+          }
+        }
+      });
+    }
+  </script>
+</body>
